@@ -1,0 +1,23 @@
+FROM python:3.12
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+CMD ["python", "-m", "flask", "--app", "run", "--host=0.0.0.0"]
+
+# on the host, from an image that has that python package installed
+# copy the current directory "." into the /app directory in the python image
+# set working directory to /app
+# run commands to install the things in requirements.txt at build time
+# run this command when the container starts
+
+# Wht's wrong with this
+# COPY before WORKDIR, works but but best practice is WORKDIR first so intent is clear
+# Copying EVERYTHING from /app, inlcuding .git ignore, secrets, locals very unnecessarily
+# Bad layer caching. Copying source code before insalling dependencies meaning every code change 
+# invalidates the cache and reinstalls all dependencies. 
+# The hardened version copies requrements.txt first for this reason.
+# Full base image so far more packages and CVE's than needed. 
+# No USER so it runs on ROOT
+# Flask's development server, not for production
+# Unpinned base tag, so python:3.12 moves over time. 
+
