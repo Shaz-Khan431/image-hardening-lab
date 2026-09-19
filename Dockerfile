@@ -13,7 +13,7 @@ COPY --chown=app:app app.py .
 USER 10001
 EXPOSE 8000
 HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "app:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:8000", "0.0.0.0:8000", "--worker-tmp-dir", "/dev/shm", "app:app"]
 
 # Starts the stage from a slim image, and names it builder so a later stage can copy from it
 # sets working directory, copies the requirements
