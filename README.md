@@ -108,18 +108,20 @@ practical.
 A lifecycle policy expires untagged images after 7 days. Untagged images
 accumulate from re tagging and multi architecture builds, and they are both
 storage cost and unreviewed attack surface. Lifecycle policies only support
-expiry, and the action is irreversible, so
-`start-lifecycle-policy-preview` is worth running first on anything real.
+expiry, and the action is irreversible, so `start-lifecycle-policy-preview` is
+worth running first on anything real.
 
 ## Running it on ECS Fargate
 
-A Fargate cluster, a task definition, and a standalone task, all in the
-console so each setting was visible rather than buried in CLI flags.
+A Fargate cluster, a task definition, and a standalone task, all in the console
+so each setting was visible rather than buried in CLI flags.
 
 Settings applied at the task definition level:
 
 * **`readonlyRootFilesystem: true`**, which has no Dockerfile equivalent and
   only exists here. This one broke the container, which was the useful part.
+* **Runtime platform ARM64**, matching the image rather than rebuilding it.
+  More on that below.
 * **Image selected by digest** rather than tag, so the task definition is
   pinned to exact bytes regardless of what any tag later points at.
 * **CloudWatch logging** enabled, which turned out to be the only thing that
@@ -152,17 +154,20 @@ CannotPullContainerError: manifest does not contain descriptor
 matching platform 'linux/amd64'
 ```
 
-Built on Apple Silicon, so the image was `linux/arm64`, while Fargate defaults
-to x86_64. The task never started, so there were no logs. The stopped reason
-was the only evidence.
+Built on Apple Silicon, so the image was `linux/arm64`, while the task
+definition asked for x86_64. The task never started, so there were no logs at
+all. The stopped reason was the only evidence available.
 
-Fixed with `docker build --platform linux/amd64`. Because the repository is tag
-immutable, the rebuild had to go up under a new tag rather than overwriting the
-old one, which is that setting working as intended.
+There are two ways out: rebuild with `docker build --platform linux/amd64`, or
+change the task's runtime platform to ARM64 so it matches the image. I matched
+the task to the image, since Fargate runs ARM64 on Graviton at a lower rate per
+vCPU hour and this service has no x86 dependency. The tradeoff is that the
+image now only runs on ARM hosts, which is fine for one service and would be a
+problem for a shared base image.
 
 The durable fix is not building release images on laptops at all. CI builds on
 a known architecture, or `buildx` publishes a multi architecture manifest so
-one tag serves both.
+one tag serves both and the platform question stops mattering.
 
 ### 2. Read only filesystem versus gunicorn
 
