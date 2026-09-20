@@ -3,6 +3,9 @@
 
 docker build -f Dockerfile.bad -t demo:bad .
 docker build -t demo:good .
+# commands above are to build the images
+# -f to specify a certain file name, otherwise Docker picks the file name Dockerfile by default
+
 docker images | grep demo                      # compare sizes
 
 demo:bad               d41f136debe4       1.63GB          407MB        

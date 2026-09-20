@@ -20,4 +20,3 @@ CMD ["python", "-m", "flask", "--app", "run", "--host=0.0.0.0"]
 # No USER so it runs on ROOT
 # Flask's development server, not for production
 # Unpinned base tag, so python:3.12 moves over time. 
-
