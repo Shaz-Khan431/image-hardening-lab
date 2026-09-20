@@ -1,60 +1,116 @@
-# This file shows the commands that we run to build the images from the 2 Dockerfiles for comparison
-# and the commands to scan the images 
+# Image Hardening Lab
 
+Building the same Flask app two ways, a naive Dockerfile and a hardened one,
+then comparing size and CVE count, and verifying the hardening actually held.
+
+## Building both images
+
+```bash
 docker build -f Dockerfile.bad -t demo:bad .
 docker build -t demo:good .
-# commands above are to build the images
-# -f to specify a certain file name, otherwise Docker picks the file name Dockerfile by default
+```
 
-docker images | grep demo                      # compare sizes
+`-f` specifies a filename; without it Docker looks for a file literally named
+`Dockerfile`. The `.` is the build context, the directory whose contents get
+sent to the daemon and are available to `COPY`.
 
-demo:bad               d41f136debe4       1.63GB          407MB        
-demo:good              190acf97fadb        213MB         45.7MB        
+## Size comparison
 
+```bash
+docker images | grep demo
+```
 
-# Scanners 
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity HIGH,CRITICAL demo:bad
+```
+demo:bad    d41f136debe4    1.63GB
+demo:good   190acf97fadb     213MB
+```
 
-Prints a very very long list of CVEs
+Roughly an 8x difference, from the slim base image and from multi-stage
+building so the build tooling never lands in the final image.
 
+## Vulnerability scanning
 
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity HIGH,CRITICAL demo:good
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy image --severity HIGH,CRITICAL demo:bad
+```
 
-Prints a much shorter list
+Prints a very long list of CVEs.
 
-# --rm deletes container when it exits
-# -v is volume mount, colon separates the volume on my mac vs where it apears on the container
-# Purpose for choosing the Docker socket is because the images live on my Docker daemon's local storage
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy image --severity HIGH,CRITICAL demo:good
+```
 
+Prints a much shorter one. Fewer packages means less to patch and less to
+exploit.
 
+- `--rm` deletes the container when it exits.
+- `-v` is a volume mount; the colon separates the host path from where it
+  appears inside the container.
+- The Docker socket is mounted because the images live in the local Docker
+  daemon's storage, which the Trivy container otherwise can't see. Worth
+  noting this is a privileged act, anything that can reach the socket can
+  effectively become root on the host. Fine locally; a finding on a shared
+  build agent. In CI you'd scan from the registry instead and skip the socket
+  entirely.
+
+## Dockerfile linting
+
+```bash
 docker run --rm -i hadolint/hadolint < Dockerfile.bad
+```
 
--:4 DL3042 warning: Avoid use of cache directory with pip. Use `pip install --no-cache-dir <package>`
+```
+-:4 DL3042 warning: Avoid use of cache directory with pip.
+Use `pip install --no-cache-dir <package>`
+```
 
-# -i keeps stdin open and wires it through to the container, to reach hadolint, redirecting to the needed file
-# if -no-cache-dir flag is not added, the pip cache otherwise sits in the image adding size or no benefit
+Without `--no-cache-dir`, the pip cache persists in the image layer, adding
+size for no benefit.
 
+`-i` keeps stdin open so the `<` redirect reaches hadolint inside the
+container. Hadolint reads from stdin when given no filename, which is why the
+output says `-:4` stdin, line 4.
 
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft demo:good -o table   # SBOM
+Note what hadolint *didn't* flag: running as root, copying the whole build
+context, using the full base image. It's a recipe linter, not a hardening
+auditor. Different tools cover different layers.
 
-# Generated the software bill of materials using anchor/syft and outputting it in table format
+## SBOM
 
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  anchore/syft demo:good -o table
+```
+
+Generates a software bill of materials, an inventory of every package in the
+image, output as a table. The point is answering "which of our images contain
+package X?" without rebuilding everything to find out.
+
+## Running it
+
+```bash
 docker run --rm -d -p 8000:8000 --name demo demo:good
-
-# run the good docker image, naming the container demo, -d to properly run in the background (detach)
-# forwards anything on my local hitting port 8000 to the container's 8000 port on the good docker build, and running in the background
-
-
 curl localhost:8000/health
+```
 
+```
 {"status":"ok"}
+```
 
-# succesful response
+`-d` detaches so it runs in the background, `--name` saves looking up container
+IDs, and `-p` forwards host port 8000 to the container's 8000.
 
+## Verifying the hardening
 
-docker exec demo whoami   # should not be root
+```bash
+docker exec demo whoami
+```
 
+```
 app
+```
 
-# the process is running as the app user, as part of the hardening we implemented
-# docker exec is just to execute commands from inside of running containers
+The process is running as the non-root `app` user, as intended. `docker exec`
+runs a command inside an already-running container.
